@@ -6,41 +6,43 @@ import altair as alt
 
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="BITBUZZ Production Manager", layout="wide")
-st.title("🚀 BITBUZZ Production Manager v4.2")
+st.title("🚀 BITBUZZ Production Manager v4.3")
 
 # --- 2. Google Sheets Connection ---
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 def get_data(worksheet_name):
-    """Fetch data from Google Sheets"""
+    """Fetch data safe mode"""
     try:
         df = conn.read(worksheet=worksheet_name, ttl=0)
         return df
-    except Exception:
+    except:
         return pd.DataFrame()
 
 def update_data(worksheet_name, df):
-    """Update data to Google Sheets (Safety Version)"""
-    # 1. 빈 칸을 빈 문자열로 채움
-    clean_df = df.fillna("")
-    # 2. 모든 데이터를 강제로 '문자열(String)'로 변환 (에러 방지 핵심)
-    clean_df = clean_df.astype(str)
+    """Update data safe mode"""
+    # 모든 데이터를 강제로 문자열로 변환하고, 빈 값은 빈칸("")으로 처리
+    clean_df = df.fillna("").astype(str)
     conn.update(worksheet=worksheet_name, data=clean_df)
 
 # --- 3. Load Settings (Staff/Channels) ---
+# config 탭이 비어있거나 에러가 나도 기본값으로 시작하게 안전장치 추가
 try:
     config_df = get_data("config")
-    # 데이터가 없거나 컬럼이 깨졌을 때 기본값 복구
+    # 데이터가 아예 없거나 헤더만 있을 경우
     if config_df.empty or 'employees' not in config_df.columns:
+        # 엑셀이 비어있으면 이 기본값으로 시작합니다
         config_df = pd.DataFrame({
-            "employees": ["Kim", "Lee"], 
+            "employees": ["EJONG", "Manager"], 
             "channels": ["Shorts Channel", "Review Channel"]
         })
+        # 여기서 엑셀에 한번 쏴줍니다 (초기화)
         update_data("config", config_df)
 except:
+    # 최악의 경우(엑셀 연결 실패 등) 메모리에서라도 돌아가게 함
     config_df = pd.DataFrame({"employees": [], "channels": []})
 
-# 리스트 변환 과정에서 빈 값 제거
+# 리스트 변환 (빈칸 제거)
 employees_list = config_df['employees'].replace("", pd.NA).dropna().unique().tolist()
 channels_list = config_df['channels'].replace("", pd.NA).dropna().unique().tolist()
 
@@ -65,7 +67,6 @@ with tab1:
     if df_logs.empty:
         st.info("No data available yet.")
     else:
-        # 날짜 변환 에러 방지
         df_logs['Date'] = pd.to_datetime(df_logs['Date'], errors='coerce')
         current_year = datetime.now().year
         current_month = datetime.now().month
@@ -77,9 +78,10 @@ with tab1:
         c1, c2, c3 = st.columns(3)
         c1.metric("Total Videos (This Month)", len(this_month_df))
         c2.metric("Active Creators", this_month_df['Staff'].nunique())
-        # 조회수 계산 시 숫자 변환
-        total_views = pd.to_numeric(this_month_df['Views'], errors='coerce').fillna(0).sum()
-        c3.metric("Total Views", f"{int(total_views):,}")
+        
+        # 조회수 에러 방지 (숫자로 강제 변환)
+        views_numeric = pd.to_numeric(this_month_df['Views'], errors='coerce').fillna(0)
+        c3.metric("Total Views", f"{int(views_numeric.sum()):,}")
         st.divider()
 
         g1, g2 = st.columns(2)
@@ -152,7 +154,10 @@ with tab4:
             max_len = max(len(employees_list), len(channels_list))
             e_series = pd.Series(employees_list + [""]*(max_len-len(employees_list)))
             c_series = pd.Series(channels_list + [""]*(max_len-len(channels_list)))
-            update_data("config", pd.DataFrame({"employees": e_series, "channels": c_series}))
+            
+            # v4.3 핵심 수정: 안전하게 데이터프레임 생성
+            new_config = pd.DataFrame({"employees": e_series, "channels": c_series})
+            update_data("config", new_config)
             st.rerun()
             
     with c2:
@@ -164,5 +169,9 @@ with tab4:
             max_len = max(len(employees_list), len(channels_list))
             e_series = pd.Series(employees_list + [""]*(max_len-len(employees_list)))
             c_series = pd.Series(channels_list + [""]*(max_len-len(channels_list)))
-            update_data("config", pd.DataFrame({"employees": e_series, "channels": c_series}))
+            
+            # v4.3 핵심 수정: 안전하게 데이터프레임 생성
+            new_config = pd.DataFrame({"employees": e_series, "channels": c_series})
+            update_data("config", new_config)
             st.rerun()
+    
