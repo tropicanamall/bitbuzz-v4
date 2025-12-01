@@ -130,4 +130,89 @@ with tab2:
         if st.form_submit_button("Submit"):
             if t:
                 try:
-                    old_df = get
+                    old_df = get_data("logs")
+                    new_row = pd.DataFrame([{
+                        "Date": str(d), "Staff": n, "Channel": ch, "Title": t, "Link": l, 
+                        "Views": "0", "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }])
+                    final_df = pd.concat([old_df, new_row], ignore_index=True)
+                    update_data("logs", final_df)
+                    st.success("Saved!"); st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+            else: st.error("Title required.")
+
+# [TAB 3] Data & Views
+with tab3:
+    if st.button("Refresh Data"): st.rerun()
+    cur_df = get_data("logs")
+    if not cur_df.empty:
+        cur_df = cur_df.sort_values(by="Date", ascending=False)
+        edited = st.data_editor(
+            cur_df, num_rows="dynamic", use_container_width=True, hide_index=True,
+            column_config={"Link": st.column_config.LinkColumn("Link")}
+        )
+        if st.button("Save Changes"):
+            update_data("logs", edited)
+            st.success("Updated!")
+    else: st.write("No data.")
+
+# [TAB 4] Settings (삭제 기능 포함)
+with tab4:
+    st.info("Manage your Staff and Channels here. (Add / Delete)")
+    
+    col_staff, col_channel = st.columns(2)
+    
+    # 1. 직원 관리 섹션
+    with col_staff:
+        st.markdown("### 👤 Staff Management")
+        st.write(f"**Current List:** {', '.join(employees_list)}")
+        
+        # 추가
+        with st.expander("➕ Add Staff", expanded=True):
+            new_emp = st.text_input("Name", key="add_emp_input")
+            if st.button("Add Staff"):
+                if new_emp and new_emp not in employees_list:
+                    employees_list.append(new_emp)
+                    save_config(employees_list, channels_list)
+                    st.success("Added!")
+                    st.rerun()
+                elif new_emp in employees_list:
+                    st.warning("Already exists.")
+
+        # 삭제 (선택박스로 안전하게)
+        with st.expander("🗑️ Delete Staff"):
+            del_emp = st.selectbox("Select to remove", ["Select..."] + employees_list, key="del_emp_select")
+            if st.button("Delete Staff"):
+                if del_emp != "Select...":
+                    employees_list.remove(del_emp)
+                    save_config(employees_list, channels_list)
+                    st.success(f"Removed {del_emp}")
+                    st.rerun()
+
+    # 2. 채널 관리 섹션
+    with col_channel:
+        st.markdown("### 📺 Channel Management")
+        st.write(f"**Current List:** {', '.join(channels_list)}")
+        
+        # 추가
+        with st.expander("➕ Add Channel", expanded=True):
+            new_ch = st.text_input("Channel Name", key="add_ch_input")
+            if st.button("Add Channel"):
+                if new_ch and new_ch not in channels_list:
+                    channels_list.append(new_ch)
+                    save_config(employees_list, channels_list)
+                    st.success("Added!")
+                    st.rerun()
+                elif new_ch in channels_list:
+                    st.warning("Already exists.")
+
+        # 삭제
+        with st.expander("🗑️ Delete Channel"):
+            del_ch = st.selectbox("Select to remove", ["Select..."] + channels_list, key="del_ch_select")
+            if st.button("Delete Channel"):
+                if del_ch != "Select...":
+                    channels_list.remove(del_ch)
+                    save_config(employees_list, channels_list)
+                    st.success(f"Removed {del_ch}")
+                    st.rerun()
