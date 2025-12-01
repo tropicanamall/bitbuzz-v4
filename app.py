@@ -6,7 +6,7 @@ import altair as alt
 
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="BITBUZZ Production Manager", layout="wide")
-st.title("🚀 BITBUZZ Production Manager v4.0")
+st.title("🚀 BITBUZZ Production Manager v4.1")
 
 # --- 2. Google Sheets Connection ---
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -14,7 +14,6 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 def get_data(worksheet_name):
     """Fetch data from Google Sheets"""
     try:
-        # ttl=0 ensures we always get fresh data
         df = conn.read(worksheet=worksheet_name, ttl=0)
         return df
     except Exception:
@@ -22,7 +21,9 @@ def get_data(worksheet_name):
 
 def update_data(worksheet_name, df):
     """Update data to Google Sheets"""
-    conn.update(worksheet=worksheet_name, data=df)
+    # 데이터프레임 내의 NaN(빈값)이나 None을 빈 문자열("")로 변환하여 에러 방지
+    clean_df = df.fillna("")
+    conn.update(worksheet=worksheet_name, data=clean_df)
 
 # --- 3. Load Settings (Staff/Channels) ---
 try:
@@ -38,13 +39,12 @@ except:
     config_df = pd.DataFrame({"employees": [], "channels": []})
 
 # Convert to list after removing empty values
-employees_list = config_df['employees'].dropna().unique().tolist()
-channels_list = config_df['channels'].dropna().unique().tolist()
+employees_list = config_df['employees'].replace("", pd.NA).dropna().unique().tolist()
+channels_list = config_df['channels'].replace("", pd.NA).dropna().unique().tolist()
 
 # --- 4. Load & Preprocess Logs ---
 df_logs = get_data("logs")
 
-# Ensure 'Views' column exists
 if not df_logs.empty:
     if "Views" not in df_logs.columns:
         df_logs["Views"] = 0
@@ -67,10 +67,8 @@ with tab1:
     if df_logs.empty:
         st.info("No data available yet. Please add entries in the 'New Entry' tab.")
     else:
-        # Convert Date column to datetime objects
         df_logs['Date'] = pd.to_datetime(df_logs['Date'])
         
-        # Filter for Current Month
         current_year = datetime.now().year
         current_month = datetime.now().month
         
@@ -79,7 +77,6 @@ with tab1:
             (df_logs['Date'].dt.month == current_month)
         ]
         
-        # Metrics
         col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.metric("📅 Total Videos (This Month)", f"{len(this_month_df)}")
         col_m2.metric("👥 Active Creators", f"{this_month_df['Staff'].nunique()}")
@@ -89,7 +86,6 @@ with tab1:
         
         st.divider()
 
-        # Graphs
         col_g1, col_g2 = st.columns(2)
         
         with col_g1:
@@ -110,7 +106,6 @@ with tab1:
 
         with col_g2:
             st.subheader("📅 Monthly Trend (Last 3 Months)")
-            # Group by Month
             monthly_trend = df_logs.groupby(df_logs['Date'].dt.to_period('M')).size().reset_index(name='Count')
             monthly_trend['Date'] = monthly_trend['Date'].astype(str)
             
@@ -201,11 +196,12 @@ with tab4:
         new_emp = st.text_input("Add New Staff", key="add_emp")
         if st.button("Add Staff"):
             employees_list.append(new_emp)
-            # Sync lengths
             max_len = max(len(employees_list), len(channels_list))
             new_emp_series = pd.Series(employees_list + [None]*(max_len-len(employees_list)))
             new_ch_series = pd.Series(channels_list + [None]*(max_len-len(channels_list)))
-            new_config = pd.DataFrame({"employees": new_emp_series, "channels": new_ch_series})
+            
+            # fillna("") applied to fix UnsupportedOperationError
+            new_config = pd.DataFrame({"employees": new_emp_series, "channels": new_ch_series}).fillna("")
             update_data("config", new_config)
             st.rerun()
 
@@ -215,10 +211,11 @@ with tab4:
         new_ch = st.text_input("Add New Channel", key="add_ch")
         if st.button("Add Channel"):
             channels_list.append(new_ch)
-            # Sync lengths
             max_len = max(len(employees_list), len(channels_list))
             new_emp_series = pd.Series(employees_list + [None]*(max_len-len(employees_list)))
             new_ch_series = pd.Series(channels_list + [None]*(max_len-len(channels_list)))
-            new_config = pd.DataFrame({"employees": new_emp_series, "channels": new_ch_series})
+            
+            # fillna("") applied to fix UnsupportedOperationError
+            new_config = pd.DataFrame({"employees": new_emp_series, "channels": new_ch_series}).fillna("")
             update_data("config", new_config)
             st.rerun()
