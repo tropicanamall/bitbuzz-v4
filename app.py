@@ -112,4 +112,73 @@ with tab2:
         n = c1.selectbox("Name", employees_list)
         ch = c2.selectbox("Channel", channels_list)
         t = st.text_input("Title")
-        l = st.text_input("Link
+        l = st.text_input("Link")
+        if st.form_submit_button("Submit"):
+            if t:
+                try:
+                    old_df = get_data("logs")
+                    new_row = pd.DataFrame([{
+                        "Date": str(d), "Staff": n, "Channel": ch, "Title": t, "Link": l, 
+                        "Views": "0", "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }])
+                    final_df = pd.concat([old_df, new_row], ignore_index=True)
+                    update_data("logs", final_df)
+                    st.success("Saved!"); st.rerun()
+                except Exception as e:
+                    st.error(f"Save failed. Please click 'Fix Config' button in sidebar. Error: {e}")
+            else: st.error("Title required.")
+
+# [TAB 3] Data & Views
+with tab3:
+    if st.button("Refresh Data"): st.rerun()
+    cur_df = get_data("logs")
+    if not cur_df.empty:
+        cur_df = cur_df.sort_values(by="Date", ascending=False)
+        edited = st.data_editor(
+            cur_df, num_rows="dynamic", use_container_width=True, hide_index=True,
+            column_config={"Link": st.column_config.LinkColumn("Link")}
+        )
+        if st.button("Save Changes"):
+            update_data("logs", edited)
+            st.success("Updated!")
+    else: st.write("No data.")
+
+# [TAB 4] Settings (관리자 기능 부활)
+with tab4:
+    st.info("Manage your Staff and Channels here.")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write("#### 👤 Staff List")
+        st.write(", ".join(employees_list))
+        new_emp = st.text_input("Add Staff", key="emp")
+        if st.button("Add Staff"):
+            employees_list.append(new_emp)
+            # 길이 맞추기 및 저장
+            max_len = max(len(employees_list), len(channels_list))
+            e_series = pd.Series(employees_list + [""]*(max_len-len(employees_list)))
+            c_series = pd.Series(channels_list + [""]*(max_len-len(channels_list)))
+            
+            try:
+                new_config = pd.DataFrame({"employees": e_series, "channels": c_series})
+                update_data("config", new_config)
+                st.rerun()
+            except:
+                st.error("Error! Please click the 'Fix/Reset' button on the left sidebar.")
+            
+    with c2:
+        st.write("#### 📺 Channel List")
+        st.write(", ".join(channels_list))
+        new_ch = st.text_input("Add Channel", key="ch")
+        if st.button("Add Channel"):
+            channels_list.append(new_ch)
+            # 길이 맞추기 및 저장
+            max_len = max(len(employees_list), len(channels_list))
+            e_series = pd.Series(employees_list + [""]*(max_len-len(employees_list)))
+            c_series = pd.Series(channels_list + [""]*(max_len-len(channels_list)))
+            
+            try:
+                new_config = pd.DataFrame({"employees": e_series, "channels": c_series})
+                update_data("config", new_config)
+                st.rerun()
+            except:
+                st.error("Error! Please click the 'Fix/Reset' button on the left sidebar.")
