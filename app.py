@@ -6,7 +6,7 @@ import altair as alt
 
 # --- 1. Page Configuration ---
 st.set_page_config(page_title="BITBUZZ Production Manager", layout="wide")
-st.title("🚀 BITBUZZ Production Manager v4.1")
+st.title("🚀 BITBUZZ Production Manager v4.2")
 
 # --- 2. Google Sheets Connection ---
 conn = st.connection("gsheets", type=GSheetsConnection)
@@ -20,31 +20,32 @@ def get_data(worksheet_name):
         return pd.DataFrame()
 
 def update_data(worksheet_name, df):
-    """Update data to Google Sheets"""
-    # 데이터프레임 내의 NaN(빈값)이나 None을 빈 문자열("")로 변환하여 에러 방지
+    """Update data to Google Sheets (Safety Version)"""
+    # 1. 빈 칸을 빈 문자열로 채움
     clean_df = df.fillna("")
+    # 2. 모든 데이터를 강제로 '문자열(String)'로 변환 (에러 방지 핵심)
+    clean_df = clean_df.astype(str)
     conn.update(worksheet=worksheet_name, data=clean_df)
 
 # --- 3. Load Settings (Staff/Channels) ---
 try:
     config_df = get_data("config")
+    # 데이터가 없거나 컬럼이 깨졌을 때 기본값 복구
     if config_df.empty or 'employees' not in config_df.columns:
-        # Default settings if empty
         config_df = pd.DataFrame({
-            "employees": ["Kim", "Lee", "Park"], 
-            "channels": ["Shorts Mentor", "That Goal", "K-Beauty"]
+            "employees": ["Kim", "Lee"], 
+            "channels": ["Shorts Channel", "Review Channel"]
         })
         update_data("config", config_df)
 except:
     config_df = pd.DataFrame({"employees": [], "channels": []})
 
-# Convert to list after removing empty values
+# 리스트 변환 과정에서 빈 값 제거
 employees_list = config_df['employees'].replace("", pd.NA).dropna().unique().tolist()
 channels_list = config_df['channels'].replace("", pd.NA).dropna().unique().tolist()
 
-# --- 4. Load & Preprocess Logs ---
+# --- 4. Load Logs ---
 df_logs = get_data("logs")
-
 if not df_logs.empty:
     if "Views" not in df_logs.columns:
         df_logs["Views"] = 0
@@ -58,164 +59,110 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "⚙️ Settings"
 ])
 
-# ==========================================
-# [TAB 1] Dashboard (Overview)
-# ==========================================
+# [TAB 1] Dashboard
 with tab1:
     st.header("📈 Monthly Performance Overview")
-    
     if df_logs.empty:
-        st.info("No data available yet. Please add entries in the 'New Entry' tab.")
+        st.info("No data available yet.")
     else:
-        df_logs['Date'] = pd.to_datetime(df_logs['Date'])
-        
+        # 날짜 변환 에러 방지
+        df_logs['Date'] = pd.to_datetime(df_logs['Date'], errors='coerce')
         current_year = datetime.now().year
         current_month = datetime.now().month
-        
         this_month_df = df_logs[
             (df_logs['Date'].dt.year == current_year) & 
             (df_logs['Date'].dt.month == current_month)
         ]
         
-        col_m1, col_m2, col_m3 = st.columns(3)
-        col_m1.metric("📅 Total Videos (This Month)", f"{len(this_month_df)}")
-        col_m2.metric("👥 Active Creators", f"{this_month_df['Staff'].nunique()}")
-        
-        total_views = this_month_df['Views'].sum() if 'Views' in this_month_df.columns else 0
-        col_m3.metric("👀 Total Views (This Month)", f"{total_views:,}")
-        
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Total Videos (This Month)", len(this_month_df))
+        c2.metric("Active Creators", this_month_df['Staff'].nunique())
+        # 조회수 계산 시 숫자 변환
+        total_views = pd.to_numeric(this_month_df['Views'], errors='coerce').fillna(0).sum()
+        c3.metric("Total Views", f"{int(total_views):,}")
         st.divider()
 
-        col_g1, col_g2 = st.columns(2)
-        
-        with col_g1:
-            st.subheader("🏆 Top Performers (This Month)")
+        g1, g2 = st.columns(2)
+        with g1:
+            st.subheader("🏆 Top Performers")
             if not this_month_df.empty:
                 emp_counts = this_month_df['Staff'].value_counts().reset_index()
                 emp_counts.columns = ['Staff', 'Count']
-                
                 chart = alt.Chart(emp_counts).mark_bar().encode(
-                    x=alt.X('Staff', sort='-y'),
-                    y='Count',
-                    color='Staff',
-                    tooltip=['Staff', 'Count']
+                    x=alt.X('Staff', sort='-y'), y='Count', color='Staff', tooltip=['Staff', 'Count']
                 ).properties(height=300)
                 st.altair_chart(chart, use_container_width=True)
-            else:
-                st.write("No data for this month.")
+        with g2:
+            st.subheader("📅 Monthly Trend")
+            if not df_logs.empty:
+                monthly = df_logs.groupby(df_logs['Date'].dt.to_period('M')).size().reset_index(name='Count')
+                monthly['Date'] = monthly['Date'].astype(str)
+                line = alt.Chart(monthly).mark_line(point=True).encode(
+                    x='Date', y='Count', tooltip=['Date', 'Count']
+                ).properties(height=300)
+                st.altair_chart(line, use_container_width=True)
 
-        with col_g2:
-            st.subheader("📅 Monthly Trend (Last 3 Months)")
-            monthly_trend = df_logs.groupby(df_logs['Date'].dt.to_period('M')).size().reset_index(name='Count')
-            monthly_trend['Date'] = monthly_trend['Date'].astype(str)
-            
-            line_chart = alt.Chart(monthly_trend).mark_line(point=True).encode(
-                x='Date',
-                y='Count',
-                tooltip=['Date', 'Count']
-            ).properties(height=300)
-            st.altair_chart(line_chart, use_container_width=True)
-
-# ==========================================
-# [TAB 2] New Entry (Input)
-# ==========================================
+# [TAB 2] New Entry
 with tab2:
     st.subheader("Submit Daily Work")
-    with st.form("entry_form", clear_on_submit=True):
+    with st.form("entry"):
         c1, c2 = st.columns(2)
-        input_date = c1.date_input("Date")
-        input_name = c1.selectbox("Creator Name", employees_list)
-        input_channel = c2.selectbox("Channel", channels_list)
-        
-        input_title = st.text_input("Video Title")
-        input_url = st.text_input("YouTube Link (URL)")
-        
+        d = c1.date_input("Date")
+        n = c1.selectbox("Name", employees_list)
+        ch = c2.selectbox("Channel", channels_list)
+        t = st.text_input("Title")
+        l = st.text_input("Link")
         if st.form_submit_button("Submit"):
-            if input_title:
-                current_data = get_data("logs")
-                
+            if t:
+                old_df = get_data("logs")
                 new_row = pd.DataFrame([{
-                    "Date": str(input_date),
-                    "Staff": input_name,
-                    "Channel": input_channel,
-                    "Title": input_title,
-                    "Link": input_url,
-                    "Views": 0,
-                    "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "Date": str(d), "Staff": n, "Channel": ch, "Title": t, "Link": l, 
+                    "Views": "0", "Timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }])
-                
-                updated_logs = pd.concat([current_data, new_row], ignore_index=True)
-                update_data("logs", updated_logs)
-                st.success("Successfully Saved! Check the Dashboard.")
-                st.rerun()
-            else:
-                st.error("Please enter the Video Title.")
+                final_df = pd.concat([old_df, new_row], ignore_index=True)
+                update_data("logs", final_df)
+                st.success("Saved!"); st.rerun()
+            else: st.error("Title required.")
 
-# ==========================================
-# [TAB 3] Data & Views (Edit)
-# ==========================================
+# [TAB 3] Data & Views
 with tab3:
-    st.warning("💡 Double-click the 'Views' cell to update view counts. Click 'Save Changes' to apply.")
-    
-    if st.button("🔄 Refresh Data"):
-        st.rerun()
-
-    current_df = get_data("logs")
-    
-    if not current_df.empty:
-        current_df = current_df.sort_values(by="Date", ascending=False)
-
-        edited_df = st.data_editor(
-            current_df,
-            num_rows="dynamic",
-            column_config={
-                "Link": st.column_config.LinkColumn("Link"),
-                "Views": st.column_config.NumberColumn("Views (Edit)", format="%d")
-            },
-            use_container_width=True,
-            hide_index=True
+    st.warning("Double-click 'Views' to edit.")
+    if st.button("Refresh"): st.rerun()
+    cur_df = get_data("logs")
+    if not cur_df.empty:
+        cur_df = cur_df.sort_values(by="Date", ascending=False)
+        edited = st.data_editor(
+            cur_df, num_rows="dynamic", use_container_width=True, hide_index=True,
+            column_config={"Link": st.column_config.LinkColumn("Link")}
         )
+        if st.button("Save Changes"):
+            update_data("logs", edited)
+            st.success("Updated!")
+    else: st.write("No data.")
 
-        if st.button("💾 Save Changes (Update Views)"):
-            edited_df['Date'] = edited_df['Date'].astype(str)
-            update_data("logs", edited_df)
-            st.success("Data updated in Google Sheets!")
-    else:
-        st.write("No records found.")
-
-# ==========================================
-# [TAB 4] Settings (Admin)
-# ==========================================
+# [TAB 4] Settings
 with tab4:
-    st.info("Manage Staff and Channel Lists here.")
-    col_s1, col_s2 = st.columns(2)
-    
-    with col_s1:
-        st.markdown("#### 👤 Staff List")
+    c1, c2 = st.columns(2)
+    with c1:
+        st.write("#### Staff List")
         st.write(", ".join(employees_list))
-        new_emp = st.text_input("Add New Staff", key="add_emp")
-        if st.button("Add Staff"):
+        new_emp = st.text_input("Add Staff", key="emp")
+        if st.button("Add"):
             employees_list.append(new_emp)
             max_len = max(len(employees_list), len(channels_list))
-            new_emp_series = pd.Series(employees_list + [None]*(max_len-len(employees_list)))
-            new_ch_series = pd.Series(channels_list + [None]*(max_len-len(channels_list)))
-            
-            # fillna("") applied to fix UnsupportedOperationError
-            new_config = pd.DataFrame({"employees": new_emp_series, "channels": new_ch_series}).fillna("")
-            update_data("config", new_config)
+            e_series = pd.Series(employees_list + [""]*(max_len-len(employees_list)))
+            c_series = pd.Series(channels_list + [""]*(max_len-len(channels_list)))
+            update_data("config", pd.DataFrame({"employees": e_series, "channels": c_series}))
             st.rerun()
-
-    with col_s2:
-        st.markdown("#### 📺 Channel List")
+            
+    with c2:
+        st.write("#### Channel List")
         st.write(", ".join(channels_list))
-        new_ch = st.text_input("Add New Channel", key="add_ch")
-        if st.button("Add Channel"):
+        new_ch = st.text_input("Add Channel", key="ch")
+        if st.button("Add "):
             channels_list.append(new_ch)
             max_len = max(len(employees_list), len(channels_list))
-            new_emp_series = pd.Series(employees_list + [None]*(max_len-len(employees_list)))
-            new_ch_series = pd.Series(channels_list + [None]*(max_len-len(channels_list)))
-            
-            # fillna("") applied to fix UnsupportedOperationError
-            new_config = pd.DataFrame({"employees": new_emp_series, "channels": new_ch_series}).fillna("")
-            update_data("config", new_config)
+            e_series = pd.Series(employees_list + [""]*(max_len-len(employees_list)))
+            c_series = pd.Series(channels_list + [""]*(max_len-len(channels_list)))
+            update_data("config", pd.DataFrame({"employees": e_series, "channels": c_series}))
             st.rerun()
